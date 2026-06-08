@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>公文系統客服知識庫</title>
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body{
+    font-family:"Microsoft JhengHei",sans-serif;
+    background:#eef2f7;
+}
+.tab-active{
+    background:#2563eb;
+    color:white;
+}
+.view-active{
+    background:#2563eb !important;
+    color:white !important;
+}
+</style>
+</head>
+
+<body class="min-h-screen p-6 text-slate-800">
+
+<div class="max-w-7xl mx-auto">
+
+<!-- Header -->
+<div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 mb-5">
+
+<div class="flex items-center gap-4 mb-5">
+
+<div class="text-4xl">📄</div>
+
+<div>
+<h1 class="text-3xl font-bold">
+公文系統客服知識庫
+</h1>
+
+<p class="text-slate-500 mt-1">
+客服問題 / 異常紀錄 / 操作功能疑問
+</p>
+</div>
+
+</div>
+
+<input type="file"
+id="excelFile"
+accept=".xlsx,.xls"
+class="w-full border border-slate-300 rounded-2xl px-4 py-3 bg-slate-50">
+
+</div>
+
+<!-- Tabs -->
+<div id="sheetTabs"
+class="sticky top-0 z-40 flex flex-wrap gap-3 mb-5 bg-[#eef2f7] py-2"></div>
+
+<!-- Toolbar -->
+<div id="toolbar" class="bg-white rounded-3xl shadow-sm border border-slate-200 p-5 mb-5">
+
+<div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+
+<div class="flex flex-wrap gap-3">
+
+<input id="keyword"
+type="text"
+placeholder="搜尋問題、回覆、提問人、回覆單位..."
+class="border border-slate-300 rounded-2xl px-4 py-3 w-72">
+
+<select id="typeFilter"
+class="border border-slate-300 rounded-2xl px-4 py-3 w-52">
+<option value="">全部類型</option>
+</select>
+
+</div>
+
+<div class="flex flex-wrap items-center gap-3">
+
+<div id="categoryStats"
+class="flex flex-wrap gap-2"></div>
+
+<button onclick="exportFilteredData()"
+class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-2xl font-semibold whitespace-nowrap">
+📥 匯出
+</button>
+
+<button onclick="resetFilter()"
+class="bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-2xl font-semibold whitespace-nowrap">
+清除
+</button>
+
+</div>
+
+</div>
+
+</div>
+
+<!-- Content Header -->
+<div class="flex items-center justify-between mb-4">
+
+<div>
+<h2 id="listTitle" class="text-2xl font-bold">
+客服紀錄列表
+</h2>
+
+<div class="text-slate-500 mt-1">
+目前顯示：
+<span id="count"
+class="font-bold text-blue-700">0</span>
+筆
+</div>
+</div>
+
+<div class="flex gap-2">
+
+<button id="cardBtn"
+onclick="toggleView('card')"
+class="view-active bg-slate-100 text-slate-700 px-5 py-3 rounded-2xl font-semibold shadow-sm border border-slate-200">
+卡片模式
+</button>
+
+<button id="tableBtn"
+onclick="toggleView('table')"
+class="bg-white hover:bg-slate-100 text-slate-700 px-5 py-3 rounded-2xl font-semibold border border-slate-200 shadow-sm transition">
+表格模式
+</button>
+
+</div>
+
+</div>
+
+<!-- Card -->
+<div id="cardView"
+class="space-y-5"></div>
+
+<!-- Table -->
+<div id="tableView"
+class="hidden bg-white rounded-3xl shadow-sm border border-slate-200 overflow-auto max-h-[75vh]">
+
+<table class="w-full text-sm">
+
+<thead class="bg-slate-100 text-slate-700 sticky top-0 z-20">
+
+<tr>
+<th class="px-4 py-4 text-left sticky top-0 bg-slate-100 z-20">序號</th>
+<th class="px-4 py-4 text-left sticky top-0 bg-slate-100 z-20">類型</th>
+<th class="px-4 py-4 text-left sticky top-0 bg-slate-100 z-20">問題內容</th>
+<th class="px-4 py-4 text-left sticky top-0 bg-slate-100 z-20">回覆內容</th>
+<th class="px-4 py-4 text-left sticky top-0 bg-slate-100 z-20">備註</th>
+</tr>
+
+</thead>
+
+<tbody id="tableBody"></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+<script>
+
+const targetSheets = [
+'客服紀錄',
+'新版電子公文(問題及回覆-異常部分)',
+'新版電子公文(問題及回復-操作面及功能面疑問)'
+];
+
+const tabNameMap = {
+'客服紀錄':'客服紀錄',
+'新版電子公文(問題及回覆-異常部分)':'異常問題',
+'新版電子公文(問題及回復-操作面及功能面疑問)':'操作功能疑問'
+};
+
+let allData = {};
+let currentSheet = '';
+let filteredData = [];
+
+document.getElementById('excelFile')
+.addEventListener('change',handleFile);
+
+document.getElementById('keyword')
+.addEventListener('input',filterData);
+
+document.getElementById('typeFilter')
+.addEventListener('change',filterData);
+
+function handleFile(e){
+
+const file = e.target.files[0];
+
+if(!file) return;
+
+const reader = new FileReader();
+
+reader.onload = function(event){
+
+const workbook = XLSX.read(event.target.result,{
+type:'binary'
+});
+
+allData = {};
+
+targetSheets.forEach(sheetName=>{
+
+const sheet = workbook.Sheets[sheetName];
+
+if(!sheet) return;
+
+const raw = XLSX.utils.sheet_to_json(sheet,{
+defval:''
+});
+
+let rows = [];
+
+if(sheetName === '客服紀錄'){
+
+rows = raw.map((row,index)=>({
+
+id: row['序號'] || index + 1,
+type: row['類型'] || '未分類',
+question: row['提問問題'] || '',
+reply: row['回覆內容'] || '',
+note: row['Note'] || '',
+asker: row['提問人'] || '',
+responder: row['回覆者'] || ''
+
+}));
+
+}else{
+
+rows = raw.map((row,index)=>({
+
+id: row['序號'] || index + 1,
+
+type: sheetName.includes('異常')
+? '異常問題'
+: '操作功能問題',
+
+question: row['行政部提問'] || '',
+
+reply: row['研資部回覆'] || '',
+
+note: row['Note'] || '',
+
+asker: '行政部',
+responder: '研資部'
+
+}));
+
+}
+
+rows = rows.filter(item=>
+String(item.question).trim() ||
+String(item.reply).trim() ||
+String(item.note).trim()
+);
+
+allData[sheetName] = rows;
+
+});
+
+renderTabs();
+
+const firstSheet = Object.keys(allData)[0];
+
+if(firstSheet){
+switchSheet(firstSheet);
+}
+
+};
+
+reader.readAsBinaryString(file);
+
+}
+
+function renderTabs(){
+
+const div = document.getElementById('sheetTabs');
+
+div.innerHTML = '';
+
+Object.keys(allData).forEach(sheetName=>{
+
+const btn = document.createElement('button');
+
+btn.textContent = tabNameMap[sheetName] || sheetName;
+
+btn.className =
+'px-5 py-3 rounded-2xl bg-white border border-slate-200 hover:border-blue-200 hover:bg-blue-50 text-slate-700 font-semibold transition-all duration-200';
+
+btn.onclick = ()=>switchSheet(sheetName);
+
+btn.dataset.sheet = sheetName;
+
+div.appendChild(btn);
+
+});
+
+}
+
+function switchSheet(sheetName){
+
+currentSheet = sheetName;
+
+const titleMap = {
+'客服紀錄':'客服紀錄列表',
+'新版電子公文(問題及回覆-異常部分)':'異常問題列表',
+'新版電子公文(問題及回復-操作面及功能面疑問)':'操作功能疑問列表'
+};
+
+document.getElementById('listTitle')
+.textContent =
+titleMap[sheetName] || '客服紀錄列表';
+
+document.querySelectorAll('#sheetTabs button')
+.forEach(btn=>{
+
+btn.classList.remove('tab-active');
+
+if(btn.dataset.sheet === sheetName){
+btn.classList.add('tab-active');
+}
+
+});
+
+renderTypeFilter();
+
+filterData();
+
+window.scrollTo({
+    top:0,
+    behavior:'smooth'
+});
+
+}
+
+function renderTypeFilter(){
+
+const select =
+document.getElementById('typeFilter');
+
+select.innerHTML =
+'<option value="">全部類型</option>';
+
+const types = [
+...new Set(
+allData[currentSheet].map(x=>x.type)
+)
+];
+
+types.forEach(type=>{
+
+const option = document.createElement('option');
+
+option.value = type;
+option.textContent = type;
+
+select.appendChild(option);
+
+});
+
+}
+
+function filterData(){
+
+const keyword =
+document.getElementById('keyword')
+.value
+.toLowerCase();
+
+const type =
+document.getElementById('typeFilter')
+.value;
+
+filteredData =
+allData[currentSheet].filter(item=>{
+
+const text = `
+${item.question}
+${item.reply}
+${item.note}
+${item.asker}
+${item.responder}
+`.toLowerCase();
+
+const matchKeyword =
+text.includes(keyword);
+
+const matchType =
+!type || item.type === type;
+
+return matchKeyword && matchType;
+
+});
+
+document.getElementById('count')
+.textContent = filteredData.length;
+
+renderStats();
+renderCards();
+renderTable();
+
+}
+
+function renderStats(){
+
+const map = {};
+
+filteredData.forEach(item=>{
+
+map[item.type] =
+(map[item.type] || 0) + 1;
+
+});
+
+const div =
+document.getElementById('categoryStats');
+
+div.innerHTML =
+Object.entries(map)
+.sort((a,b)=>b[1]-a[1])
+.map(([type,count])=>`
+
+<div onclick="quickFilter('${type}')"
+class="bg-slate-100 hover:bg-blue-50 border border-slate-200 rounded-full px-4 py-2 cursor-pointer transition">
+
+<div class="flex items-center gap-2">
+
+<div class="text-sm font-semibold text-slate-700">
+${type}
+</div>
+
+<div class="text-sm font-bold text-blue-700">
+${count}
+</div>
+
+</div>
+
+</div>
+
+`).join('');
+
+}
+
+function quickFilter(type){
+
+document.getElementById('typeFilter').value = type;
+
+filterData();
+
+}
+
+function renderCards(){
+
+const container =
+document.getElementById('cardView');
+
+container.innerHTML =
+filteredData.map(item=>`
+
+<div class="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 p-5 max-w-6xl mx-auto relative overflow-hidden">
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></div>
+
+<div class="flex gap-2 flex-wrap mb-4">
+
+<span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-xs font-bold">
+${item.type}
+</span>
+
+<span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs">
+#${item.id}
+</span>
+
+</div>
+
+<div class="text-xl font-bold leading-relaxed mb-4 whitespace-pre-wrap">
+${item.question || '（無問題內容）'}
+</div>
+
+<div class="grid md:grid-cols-2 gap-4 mb-5">
+
+<div class="bg-slate-50 rounded-2xl p-3">
+
+<div class="text-sm text-slate-500 mb-1">
+提問單位
+</div>
+
+<div class="font-semibold">
+${item.asker}
+</div>
+
+</div>
+
+<div class="bg-slate-50 rounded-2xl p-3">
+
+<div class="text-sm text-slate-500 mb-1">
+回覆單位
+</div>
+
+<div class="font-semibold">
+${item.responder}
+</div>
+
+</div>
+
+</div>
+
+<div class="bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
+
+<div class="font-bold text-emerald-700 mb-3">
+客服回覆
+</div>
+
+<div class="leading-relaxed whitespace-pre-wrap text-lg">
+${item.reply || '尚無回覆'}
+</div>
+
+</div>
+
+${item.note ? `
+
+<div class="mt-4 bg-amber-50 border border-amber-200 rounded-2xl p-5">
+
+<div class="font-bold text-amber-700 mb-3">
+備註
+</div>
+
+<div class="leading-relaxed whitespace-pre-wrap">
+${item.note}
+</div>
+
+</div>
+
+` : ''}
+
+</div>
+
+`).join('');
+
+}
+
+function renderTable(){
+
+const tbody =
+document.getElementById('tableBody');
+
+tbody.innerHTML =
+filteredData.map(item=>`
+
+<tr class="border-b border-slate-100 hover:bg-slate-50 align-top">
+
+<td class="px-4 py-4">
+
+<span class="inline-flex items-center justify-center bg-blue-100 text-blue-700 font-bold rounded-full px-3 py-1 min-w-[48px]">
+#${item.id}
+</span>
+
+</td>
+
+<td class="px-4 py-4 whitespace-nowrap">
+
+<span class="inline-flex items-center rounded-full px-3 py-1 font-semibold text-sm
+${item.type.includes('異常')
+? 'bg-blue-100 text-blue-700'
+: item.type.includes('操作')
+? 'bg-emerald-100 text-emerald-700'
+: item.type.includes('表單')
+? 'bg-amber-100 text-amber-700'
+: 'bg-slate-100 text-slate-700'}">
+
+${item.type}
+
+</span>
+
+</td>
+
+<td class="px-4 py-4 min-w-[320px] whitespace-pre-wrap">${item.question || ''}</td>
+
+<td class="px-4 py-4 min-w-[320px] whitespace-pre-wrap">${item.reply || ''}</td>
+
+<td class="px-4 py-4 min-w-[220px] whitespace-pre-wrap">${item.note || ''}</td>
+
+</tr>
+
+`).join('');
+
+}
+
+function toggleView(mode){
+
+const cardView =
+document.getElementById('cardView');
+
+const tableView =
+document.getElementById('tableView');
+
+const cardBtn =
+document.getElementById('cardBtn');
+
+const tableBtn =
+document.getElementById('tableBtn');
+
+cardBtn.classList.remove('view-active');
+tableBtn.classList.remove('view-active');
+
+if(mode === 'card'){
+
+cardView.classList.remove('hidden');
+tableView.classList.add('hidden');
+
+cardBtn.classList.add('view-active');
+
+}else{
+
+cardView.classList.add('hidden');
+tableView.classList.remove('hidden');
+
+tableBtn.classList.add('view-active');
+
+}
+
+}
+
+function resetFilter(){
+
+document.getElementById('keyword').value = '';
+document.getElementById('typeFilter').value = '';
+
+filterData();
+
+}
+
+function exportFilteredData(){
+
+if(filteredData.length === 0){
+
+alert('目前沒有可匯出的資料');
+return;
+
+}
+
+const exportData = filteredData.map(item=>({
+
+'類型': item.type,
+'問題內容': item.question,
+'回覆內容': item.reply,
+'備註': item.note || ''
+
+}));
+
+const worksheet =
+XLSX.utils.json_to_sheet(exportData);
+
+const workbook =
+XLSX.utils.book_new();
+
+XLSX.utils.book_append_sheet(
+workbook,
+worksheet,
+currentSheet
+);
+
+const today = new Date();
+
+const fileName =
+`${currentSheet}_${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}.xlsx`;
+
+XLSX.writeFile(workbook,fileName);
+
+}
+
+</script>
+
+</body>
+</html>
